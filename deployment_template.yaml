@@ -1,0 +1,123 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: <service_name>
+spec:
+  replicas: 1 # or 2 for durability in production
+  template:
+    metadata:
+      labels:
+        name: <service_name>
+        service: <service_name>
+    spec:
+      containers:
+      - name: <service_name>
+        image: docker.digital.homeoffice.gov.uk/ukhomeofficedigital/<team>/<service_name>:{{.DRONE_COMMIT_SHA}}
+        imagePullPolicy: "Always"
+        securityContext:
+          runAsNonRoot: true
+        resources:
+          limits:
+            memory: 200Mi
+            cpu: 50m
+        envFrom:
+          - configMapRef:
+              name: <service_name>-configmap
+        env:
+          - name: <secret_name_uppercase>
+            valueFrom:
+              secretKeyRef:
+                name: <secret_name_lowercase>
+                key: <secret_name_lowercase>
+        ports:
+          - containerPort: 8080 # or alternative app port
+      - name: redis
+        image: quay.io/ukhomeofficedigital/redis:v0.1.2
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          runAsNonRoot: true
+        ports:
+          - containerPort: 6379
+        env:
+          - name: REDIS_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: <redis_password_secret>
+                key: <redis_password_secret>
+          - name: USER
+            value: '995'
+        resources:
+          limits:
+            cpu: 10m
+            memory: 100Mi
+        volumeMounts:
+          - mountPath: /var/lib/redis
+            name: data
+      - name: keycloak-proxy
+        image: quay.io/ukhomeofficedigital/go-keycloak-proxy:v2.2.2
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+        resources:
+          limits:
+            cpu: 10m
+            memory: 100Mi
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: PROXY_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: <client_secret>
+                key: <client_secret>
+        args:
+          - --discovery-url=https://sso-dev.notprod.homeoffice.gov.uk/auth/realms/<service_realm>
+          - --client-id=<realm_service_id>
+          - --listen=127.0.0.1:8081
+          - --upstream-url=http://127.0.0.1:8080
+          - --enable-json-logging
+          - --upstream-keepalives=false
+          - --cors-origins='*'
+          - --secure-cookie=true
+          - --http-only-cookie=true
+          - --verbose=true
+          - --resources=uri=/*
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      - name: proxy
+        image: quay.io/ukhomeofficedigital/nginx-proxy-govuk:v3.4.5
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          runAsNonRoot: true
+        resources:
+          limits:
+            cpu: 10m
+            memory: 100Mi
+        env:
+          - name: PROXY_SERVICE_HOST
+            value: '127.0.0.1'
+          - name: PROXY_SERVICE_PORT
+            value: '8081'
+          - name: LOG_FORMAT_NAME
+            value: json
+          - name: NAXSI_USE_DEFAULT_RULES
+            value: 'FALSE'
+          - name: CLIENT_MAX_BODY_SIZE
+            value: '5000'
+          - name: USER
+            value: '1000'
+          - name: VERBOSE_ERROR_PAGES
+            value: 'TRUE'
+          - name: NO_LOGGING_BODY
+            value: 'FALSE'
+          - name: NO_LOGGING_RESPONSE
+            value: 'FALSE'
+          - name: ERROR_REDIRECT_CODES
+            value: 'FALSE'
+        ports:
+          - name: https
+            containerPort: 10443
+      imagePullSecrets:
+      - name: <artifactory_image_pull_secret>
+      volumes:
+        - name: data
+          emptyDir: {}

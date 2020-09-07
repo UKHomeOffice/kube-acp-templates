@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: <service_name>-configmap
+  namespace: <acp_namespace>
+data:
+  API_URL: <api_url>
+  ENVIRONMENT: <env>
+  # etc 

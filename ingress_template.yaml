@@ -1,0 +1,28 @@
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  annotations:
+    ingress.kubernetes.io/force-ssl-redirect: "true" # redirects HTTP to HTTPS
+    ingress.kubernetes.io/backend-protocol: "HTTPS"  # indicate how NGINX should communicate with the backend service
+    ingress.kubernetes.io/proxy-body-size: '5000m'   # sets maximum size of request body
+    kubernetes.io/ingress.class: "nginx-external"    # distinguishes between externally available or VPN/internal available service
+    stable.k8s.psg.io/kcm.provider: http             # sets a provider for certs
+  labels:
+    name: <service_name>
+    role: ingress
+    stable.k8s.psg.io/kcm.class: default
+  name: <service_name>
+spec:
+  tls:
+  - secretName: <service_name>-tls # can be named anything. Use a nameholder for auto generated LetsEncrypt tls secret
+    hosts:
+    - <site_domain_url>
+  rules:
+  - host: <site_domain_url>
+    http:
+      paths:
+      - backend:
+          serviceName: <service_name>
+          servicePort: 443 # HTTPS port
+        path: /
