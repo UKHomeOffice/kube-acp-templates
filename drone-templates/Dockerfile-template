@@ -1,0 +1,23 @@
+FROM node:8.7-alpine
+
+ARG NPM_AUTH_USERNAME
+ARG NPM_AUTH_TOKEN
+
+RUN apk add --update --no-cache \
+    git file imagemagick ffmpeg
+
+WORKDIR /app
+
+COPY package.json package-lock.json .npmrc /app/
+RUN npm install
+COPY . /app
+RUN npm run postinstall
+
+RUN adduser -D -g '' -u 1002 nodejs && \
+		chown -R nodejs:nodejs .
+
+EXPOSE 8080
+
+USER 1002
+
+CMD npm start

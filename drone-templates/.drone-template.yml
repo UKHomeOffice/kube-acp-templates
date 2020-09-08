@@ -1,0 +1,232 @@
+pipeline:
+# REPO MASTER BRANCH BUILD & DEPLOY TO DEV
+  build:
+    image: docker:17.09.1
+    environment:
+      - DOCKER_HOST=tcp://172.17.0.1:2375
+      - DOCKER_REPO=docker.digital.homeoffice.gov.uk
+      - DOCKER_BASEDIR=/ukhomeofficedigital/<team>/
+      - DOCKER_IMAGE=<service_name>
+    secrets:
+      - ARTIFACTORY_TOKEN
+      - NPM_AUTH_USERNAME
+      - NPM_AUTH_TOKEN
+    commands:
+      - PACKAGE_VERSION=$(grep version package.json | head -1 | awk -F ":" '{ print $2 }' | sed 's/[",]//g' | tr -d '[[:space:]]')
+      - TAG="v$${PACKAGE_VERSION}-$${DRONE_BUILD_NUMBER}-$${DRONE_COMMIT}"
+      - IMAGE="$${DOCKER_REPO}$${DOCKER_BASEDIR}$${DOCKER_IMAGE}"
+      - docker build --build-arg NPM_AUTH_USERNAME=$${NPM_AUTH_USERNAME} --build-arg NPM_AUTH_TOKEN=$${NPM_AUTH_TOKEN} -t "$${DOCKER_IMAGE}" -f Dockerfile .
+      - docker login -u="$${ARTIFACTORY_ROBOT_USER}" -p="$${ARTIFACTORY_TOKEN}" "$${DOCKER_REPO}"
+      - docker tag "$${DOCKER_IMAGE}" "$${IMAGE}:$${TAG}"
+      - docker tag "$${DOCKER_IMAGE}" "$${IMAGE}:${DRONE_COMMIT_SHA}"
+      - docker tag "$${DOCKER_IMAGE}" "$${IMAGE}:latest"
+      - docker push "$${IMAGE}:${DRONE_COMMIT_SHA}"
+      - docker push "$${IMAGE}:latest"
+    when:
+      branch: master
+      event: [push, pull_request, tag]
+
+  deploy_to_dev:
+    image: quay.io/ukhomeofficedigital/kd:latest
+    environment:
+      - KUBE_NAMESPACE=<kube_acp_dev_namespace>
+      - IMAGE_TAG=${DRONE_COMMIT_SHA}
+      - KUBE_SERVER=<acp_notprod_cluster_url>
+      - INSECURE_SKIP_TLS_VERIFY=true
+      - DEPLOY_TO=dev
+    secrets:
+      - KUBE_TOKEN
+    commands:
+      - kd --insecure-skip-tls-verify -f kube/dev/configmap.yaml -f kube/dev/ingress.yaml -f kube/ingress-network-policy.yaml -f kube/service.yaml
+      - kd --insecure-skip-tls-verify --timeout 10m --check-interval 10s -f kube/dev/deployment.yaml
+    when:
+      branch: master
+      event: push
+
+
+# OPEN PULL REQUEST BUILD
+  pr-build:
+    image: docker:17.09.1
+    environment:
+      - DOCKER_HOST=tcp://172.17.0.1:2375
+      - DOCKER_REPO=docker.digital.homeoffice.gov.uk
+      - DOCKER_BASEDIR=/ukhomeofficedigital/<team>/
+      - DOCKER_IMAGE=<service_name>
+    secrets:
+      - ARTIFACTORY_TOKEN
+      - NPM_AUTH_USERNAME
+      - NPM_AUTH_TOKEN
+    commands:
+      - IMAGE="$${DOCKER_REPO}$${DOCKER_BASEDIR}$${DOCKER_IMAGE}"
+      - docker build --build-arg NPM_AUTH_USERNAME=$${NPM_AUTH_USERNAME} --build-arg NPM_AUTH_TOKEN=$${NPM_AUTH_TOKEN} -t "$${DOCKER_IMAGE}" -f Dockerfile .
+      - docker login -u="$${ARTIFACTORY_ROBOT_USER}" -p="$${ARTIFACTORY_TOKEN}" "$${DOCKER_REPO}"
+      - docker tag "$${DOCKER_IMAGE}" "$${IMAGE}:latest"
+      - docker push "$${IMAGE}:latest"
+    when:
+      branch: feature/*
+      event: pull_request
+
+  pr_deploy_to_dev:
+    image: quay.io/ukhomeofficedigital/kd:latest
+    environment:
+      - KUBE_NAMESPACE=<kube_acp_dev_namespace>
+      - IMAGE_TAG=${DRONE_COMMIT_SHA}
+      - KUBE_SERVER=<acp_notprod_cluster_url>
+      - INSECURE_SKIP_TLS_VERIFY=true
+      - DEPLOY_TO=dev
+    secrets:
+      - KUBE_TOKEN
+    commands:
+      - kd --insecure-skip-tls-verify -f kube/dev/configmap.yaml -f kube/dev/ingress.yaml -f kube/ingress-network-policy.yaml -f kube/service.yaml
+      - kd --insecure-skip-tls-verify --timeout 10m --check-interval 10s -f kube/dev/deployment.yaml
+    when:
+      environment: DEV
+      event: deployment
+
+# ENVIRONMENT DEPLOYMENTS
+
+  promote_to_uat:
+    image: quay.io/ukhomeofficedigital/kd:latest
+    environment:
+      - KUBE_NAMESPACE=<kube_acp_uat_namespace>
+      - IMAGE_TAG=${DRONE_COMMIT_SHA}
+      - KUBE_SERVER=<acp_notprod_cluster_url>
+      - INSECURE_SKIP_TLS_VERIFY=true
+      - DEPLOY_TO=uat
+    secrets:
+      - KUBE_TOKEN_UAT
+    commands:
+      - export KUBE_TOKEN=$${KUBE_TOKEN_UAT}
+      - kd --insecure-skip-tls-verify -f kube/uat/configmap.yaml -f kube/uat/ingress.yaml -f kube/ingress-network-policy.yaml -f kube/service.yaml
+      - kd --insecure-skip-tls-verify --timeout 10m --check-interval 10s -f kube/uat/deployment.yaml
+    when:
+      environment: UAT
+      event: deployment
+
+  promote_to_prod:
+    image: quay.io/ukhomeofficedigital/kd:latest
+    environment:
+      - KUBE_NAMESPACE=<kube_acp_prod_namespace>
+      - IMAGE_TAG=${DRONE_COMMIT_SHA}
+      - KUBE_SERVER=<acp_prod_kube_cluster_url>
+      - INSECURE_SKIP_TLS_VERIFY=true
+      - DEPLOY_TO=prod
+    secrets:
+      - KUBE_TOKEN_PROD
+    commands:
+      - export KUBE_TOKEN=$${KUBE_TOKEN_PROD}
+      - kd --insecure-skip-tls-verify -f kube/prod/configmap.yaml -f kube/prod/ingress.yaml -f kube/ingress-network-policy.yaml -f kube/service.yaml
+      - kd --insecure-skip-tls-verify --timeout 10m --check-interval 10s -f kube/prod/deployment.yaml
+    when:
+      environment: PROD
+      event: deployment
+
+  build_status:
+    image: quay.io/ukhomeofficedigital/amazonlinux-with-extras
+    secrets:
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+    environment:
+      - AWS_DEFAULT_REGION=<aws_region>
+      - AWS_DEFAULT_OUTPUT=json
+      - BUCKET_NAME=<bucket_name>
+      - OBJECT_KEY_PREFIX=build
+      - ENVIRONMENT=${DRONE_DEPLOY_TO=dev}
+    commands:
+      - OBJECT_KEY=$OBJECT_KEY_PREFIX/$${ENVIRONMENT,,}:$DRONE_REPO_NAME:$DRONE_BUILD_STATUS.txt
+      - echo $DRONE_COMMIT,$DRONE_BUILD_NUMBER,$DRONE_BUILD_FINISHED,$DRONE_COMMIT_AUTHOR,$DRONE_JOB_STATUS,$DRONE_BUILD_FINISHED > build.txt
+      - echo "Writing to - $OBJECT_KEY"
+      - aws s3api put-object --bucket $BUCKET_NAME --key $$OBJECT_KEY --body build.txt
+    when:
+      event: [ push, deployment ]
+      branch: master
+      status: [ success, failure ]
+
+# SLACK WEBHOOKS
+  notify_slack_success_push:
+    image: plugins/slack:1.1
+    secrets:
+      - SLACK_WEBHOOK
+    channel: <team_slack_channel>
+    username: Drone
+    icon_url: http://readme.drone.io/0.5/logo_dark.svg
+    icon.url: http://readme.drone.io/0.5/logo_dark.svg
+    template: >
+      *Deployed <SERVICE_NAME> to DEV* - <{{build.link}}|#{{build.number}}>
+
+      Author: {{build.author}}
+
+      Duration: {{since job.started}}
+      Job: <{{build.link}}|#{{build.number}}>
+
+      Commit: {{build.commit}}
+    when:
+      branch: master
+      event: push
+      status: success
+
+  notify_slack_success_deployment:
+    image: plugins/slack:1.1
+    secrets:
+      - SLACK_WEBHOOK
+    channel: <team_slack_channel>
+    username: Drone
+    icon_url: http://readme.drone.io/0.5/logo_dark.svg
+    icon.url: http://readme.drone.io/0.5/logo_dark.svg
+    template: >
+      *Deployed <SERVICE_NAME> to {{build.deployTo}}* - <{{build.link}}|#{{build.number}}>
+
+      Author: {{build.author}}
+
+      Duration: {{since job.started}}
+      Job: <{{build.link}}|#{{build.number}}>
+
+      Commit: {{build.commit}}
+    when:
+      branch: master
+      event: deployment
+      status: success
+
+  notify_slack_failure_push:
+    image: plugins/slack:1.1
+    secrets:
+      - SLACK_WEBHOOK
+    channel: <team_slack_channel>
+    username: Drone
+    icon_url: http://readme.drone.io/0.5/logo_dark.svg
+    icon.url: http://readme.drone.io/0.5/logo_dark.svg
+    template: >
+      *Failed to deploy <SERVICE_NAME> to DEV*
+
+      Author: {{build.author}}
+
+      Duration: {{since job.started}}
+      Job: <{{build.link}}|#{{build.number}}>
+
+      Commit: {{build.commit}}
+    when:
+      branch: master
+      event: push
+      status: failure
+
+  notify_slack_failure_deployment:
+    image: plugins/slack:1.1
+    secrets:
+      - SLACK_WEBHOOK
+    channel: <team_slack_channel>
+    username: Drone
+    icon_url: http://readme.drone.io/0.5/logo_dark.svg
+    icon.url: http://readme.drone.io/0.5/logo_dark.svg
+    template: >
+      *Failed to deploy <SERVICE_NAME> to {{build.deployTo}}*
+
+      Author: {{build.author}}
+
+      Duration: {{since job.started}}
+      Job: <{{build.link}}|#{{build.number}}>
+
+      Commit: {{build.commit}}
+    when:
+      branch: master
+      event: deployment
+      status: failure

@@ -35,9 +35,9 @@ spec:
         image: quay.io/ukhomeofficedigital/redis:v0.1.2
         imagePullPolicy: IfNotPresent
         securityContext:
-          runAsNonRoot: true
+          runAsNonRoot: true    # has to be set to run on ACP or it will be blocked
         ports:
-          - containerPort: 6379
+          - containerPort: 6379 # default redis port
         env:
           - name: REDIS_PASSWORD
             valueFrom:
@@ -52,7 +52,7 @@ spec:
             memory: 100Mi
         volumeMounts:
           - mountPath: /var/lib/redis
-            name: data
+            name: data            # references name of mounted volume below
       - name: keycloak-proxy
         image: quay.io/ukhomeofficedigital/go-keycloak-proxy:v2.2.2
         securityContext:
@@ -70,10 +70,10 @@ spec:
                 name: <client_secret>
                 key: <client_secret>
         args:
-          - --discovery-url=https://sso-dev.notprod.homeoffice.gov.uk/auth/realms/<service_realm>
-          - --client-id=<realm_service_id>
-          - --listen=127.0.0.1:8081
-          - --upstream-url=http://127.0.0.1:8080
+          - --discovery-url=https://sso-dev.notprod.homeoffice.gov.uk/auth/realms/<service_realm> # make request to ACP for one
+          - --client-id=<realm_service_id>       # client id for service setup in your realm
+          - --listen=127.0.0.1:8081              # listening for traffic from NGINX
+          - --upstream-url=http://127.0.0.1:8080 # forward authenticated traffic to service port
           - --enable-json-logging
           - --upstream-keepalives=false
           - --cors-origins='*'
@@ -96,7 +96,7 @@ spec:
           - name: PROXY_SERVICE_HOST
             value: '127.0.0.1'
           - name: PROXY_SERVICE_PORT
-            value: '8081'
+            value: '8081'              # points to NGINX
           - name: LOG_FORMAT_NAME
             value: json
           - name: NAXSI_USE_DEFAULT_RULES
@@ -119,5 +119,5 @@ spec:
       imagePullSecrets:
       - name: <artifactory_image_pull_secret>
       volumes:
-        - name: data
+        - name: data # volume mount for redis referenced above
           emptyDir: {}
