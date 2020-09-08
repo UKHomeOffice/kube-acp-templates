@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  labels:
+    name: redis
+    tier: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: <service_name>
+      name: redis
+      tier: backend
+  template:
+    metadata:
+      labels:
+        app: <service_name>
+        name: redis
+        tier: backend
+    spec:
+      containers:
+      - name: redis
+        image: quay.io/ukhomeofficedigital/redis:v1.0.0
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          runAsNonRoot: true
+        ports:
+          - containerPort: 6379
+        env:
+          - name: REDIS_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: <redis_secret>
+                key: <redis_secret>
+          - name: USER
+            value: '995'
+        resources:
+          requests:
+            cpu: "20m"
+            memory: "100Mi"
+          limits:
+            cpu: "20m"
+            memory: "100Mi"
+        volumeMounts:
+          - mountPath: /var/lib/redis
+            name: data
+      imagePullSecrets:
+      - name: <artifactory_pull_secret>
+      volumes:
+        - name: data
+          emptyDir: {}

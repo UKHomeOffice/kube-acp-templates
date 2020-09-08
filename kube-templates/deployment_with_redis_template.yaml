@@ -30,8 +30,20 @@ spec:
                 name: <secret_name_lowercase>
                 key: <secret_name_lowercase>
         ports:
-          - containerPort: 8080 # or alternative app port
-      - name: redis
+          - containerPort: 8080 # OR alternative app port
+        livenessProbe:
+          httpGet:
+            path: /health       # OR equivalent healthcheck endpoint
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /health       # OR equivalent healthcheck endpoint
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+      - name: redis             # OR use Redis Deployment file so sessions are not impacted by deployment file updates
         image: quay.io/ukhomeofficedigital/redis:v0.1.2
         imagePullPolicy: IfNotPresent
         securityContext:
@@ -81,6 +93,13 @@ spec:
           - --http-only-cookie=true
           - --verbose=true
           - --resources=uri=/*
+          # - --revocation-url=https://sso.digital.homeoffice.gov.uk/auth/realms/<realm>/protocol/openid-connect/logout
+          # - --resources=uri=/signout_confirmation|white-listed=true
+          # - --resources=uri=/health|white-listed=true
+          # - --resources=uri=/*
+          # - --enable-refresh-tokens=true
+          # - --encryption-key=<encryption_key>
+          # - --invalid-auth-redirects-with-303=true
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
       - name: proxy

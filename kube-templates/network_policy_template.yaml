@@ -2,6 +2,8 @@ apiVersion: networking.k8s.io/v1 # ACP has a deny all network policy so you need
 kind: NetworkPolicy
 metadata:
   name: ingress-network-policy
+  labels:
+    tier: frontend
 spec:
   podSelector: {}
   ingress:

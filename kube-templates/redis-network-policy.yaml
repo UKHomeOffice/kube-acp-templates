@@ -1,0 +1,17 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-redis
+  labels:
+    name: redis
+    tier: backend
+spec:
+  ingress:
+  - ports:
+    - port: 6379
+      protocol: TCP
+  podSelector:
+    matchLabels:
+      app: <service_name>
+  policyTypes:
+  - Ingress
